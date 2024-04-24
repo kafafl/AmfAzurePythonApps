@@ -1,0 +1,7 @@
+
+azure-functions
+pandas==2.2.0
+suds
+sqlalchemy
+pyodbc
+bs4==0.0.1
