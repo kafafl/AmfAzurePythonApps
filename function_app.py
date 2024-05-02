@@ -1,6 +1,7 @@
 #packages for Azure Function App
 import azure.functions as func
 import logging
+import os
 #packages for MSCI 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -9,16 +10,16 @@ from suds.client import Client
 from suds import WebFault
 from urllib import parse
 import time
-import sys
+import datetime as dt
 import logging
 from bs4 import BeautifulSoup as bs
 import sys
 from xml.etree import ElementTree as ET
-import datetime as dt
+import uuid
 
 app = func.FunctionApp()
 
-
+@app.function_name("fcMSCiPushPortfolio")
 @app.route(route="fcMSCiPushPortfolio", auth_level=func.AuthLevel.ANONYMOUS)
 def fcMSCiPushPortfolio(req: func.HttpRequest) -> func.HttpResponse:
 
@@ -33,7 +34,7 @@ def fcMSCiPushPortfolio(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function [fcMSCiPushPortfolio] processed a request.')
     return func.HttpResponse(f"Success running AMF portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushPortfolio]", status_code=200)
     
-
+@app.function_name("fcMSCiGetData")
 @app.route(route="fcMSCiGetData", auth_level=func.AuthLevel.ANONYMOUS)
 def fcMSCiGetData(req: func.HttpRequest) -> func.HttpResponse:
 
@@ -48,7 +49,7 @@ def fcMSCiGetData(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function [fcMSCiGetData] processed a request.')
     return func.HttpResponse(f"Success pulling AMF risk report data from MSCi [using AmfAzurePythonApps..fcMSCiGetData]", status_code=200)
     
-
+@app.function_name("fcGetLatestMSCiData")
 @app.route(route="fcGetLatestMSCiData", auth_level=func.AuthLevel.ANONYMOUS)
 def fcGetLatestMSCiData(req: func.HttpRequest) -> func.HttpResponse:
 
@@ -64,7 +65,7 @@ def fcGetLatestMSCiData(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function [fcGetLatestMSCiData] processed a request.')
     return func.HttpResponse(html_msci, status_code=200)
 
-
+@app.function_name("fcGetEstUniverseRisk")
 @app.route(route="fcGetEstUniverseRisk", auth_level=func.AuthLevel.ANONYMOUS)
 def fcGetEstUniverseRisk(req: func.HttpRequest) -> func.HttpResponse:
 
@@ -89,7 +90,7 @@ class extMSCiTasks():
         logging.info("Call to send AMF portfolio to MSCI via API") 
 
         def ClearAsOfMSCiData(dtAsOfDate):  
-            conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+            conn_str = os.environ["OperationsDatabaseConnectionString"]  
             prms = parse.quote_plus(conn_str)
             eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
             
@@ -105,7 +106,7 @@ class extMSCiTasks():
                 conn.commit()
                 conn.close()
 
-        conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+        conn_str = os.environ["OperationsDatabaseConnectionString"]  
         params = parse.quote_plus(conn_str)
         engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
         connection = engine.connect()
@@ -223,7 +224,7 @@ class extMSCiTasks():
         logging.info("Call to get AMF data from MSCI via API")       
 
         def LoadDataToDatabase(sTicker, sSecName, fQuantity, fPrice, fMktVal, fWeight, fMktCorr, fBmkCorr):
-            conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+            conn_str = os.environ["OperationsDatabaseConnectionString"]  
             prms = parse.quote_plus(conn_str)
             eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
 
@@ -431,7 +432,7 @@ class extMSCiTasks():
         cid = "rkvi74supd"
 
         # settings
-        conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+        conn_str = os.environ["OperationsDatabaseConnectionString"]  
         params = parse.quote_plus(conn_str)
         engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
         connection = engine.connect()
@@ -440,7 +441,6 @@ class extMSCiTasks():
         analysisDt = dn.AsOfDate.values[0]
         connection.close()
 
-        #analysisDt = dt.date(2024,1,5)
         portfolio = 'AMF-Main-Daily'
         portfolioOwner = usr
         analysisSetting = "EFMGEMLTS-Benchmark"
@@ -471,7 +471,7 @@ class extMSCiTasks():
     def getMSCiLatestResults():
         logging.info("Call to get MSCI HTML table from database.")  
 
-        conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+        conn_str = os.environ["OperationsDatabaseConnectionString"]  
         params = parse.quote_plus(conn_str)
         engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
         connection = engine.connect()
@@ -503,206 +503,161 @@ class extMSCiTasks():
     def getEstUniverseResutsFromMsci():        
         logging.info("Call to get AMF data from MSCI via API")       
 
-        def LoadDataToDatabase(sTicker, sSecName, fQuantity, fPrice, fMktVal, fWeight, fMktCorr, fBmkCorr):
-            conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
-            prms = parse.quote_plus(conn_str)
-            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
-
+        def LoadEstUnivDataToDatabase(conn, dtAsOfDate, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference):
             query = """
             DECLARE @out int;
-            EXEC [dbo].[p_SetCorrValuesMSCi] @AsOfDate = :p1, @PortfolioName = :p2, @Ticker = :p3, @SecName = :p4, @Quantity = :p5, @Price = :p6, @MktVal = :p7, @WeightMod = :p8, @MktCorr = :p9, @BmkCorr = :p10;
+            EXEC [dbo].[p_UpdateInsertFacExpRets] @AsOfDate = :p1, @AssetIdBarra = :p2, @AssetNameBarra = :p3, @FactorNameBarra = :p4, @RetVal = :p5, @JobReference = :p6;
             SELECT @out AS the_output;
             """
-            params = dict(p1= analysisDt.strftime(r'%m/%d/%y'), p2=portfolio, p3=sTicker, p4=sSecName, p5=fQuantity, p6=fPrice, p7=fMktVal, p8=fWeight, p9=fMktCorr, p10=fBmkCorr)
-            with eng.connect() as conn:
-                result = conn.execute(db.text(query), params).scalar()
-                conn.commit()
-                conn.close()
+            params = dict(p1= dtAsOfDate.strftime(r'%m/%d/%y'), p2=sAssetIdBarra, p3=sAssetNameBarra, p4=sFactorNameBarra, p5=fRetVal, p6=sJobReference)
+            result = conn.execute(db.text(query), params).scalar()
+            conn.commit()   
+            print(str(sAssetIdBarra) + " " + str(sAssetNameBarra) + " " + str(sAssetNameBarra)+ " " + str(sFactorNameBarra)+ " " + str(fRetVal)+ " " + str(sJobReference))        
 
-        # Runs a report based on the reportID obtained from the supported reports
-        def RetrieveReportsSample(reportID, custTemplateName, custTemplateOwner, date, por, porOwner, analysisSetting, analysisSettingOwner, tsName, tsOwner):
-            print('Retrieving report:', reportID, custTemplateName, custTemplateOwner)
+        def RetrieveReportEstUnivData(custTemplateName, custTemplateOwner, date, por, porOwner, analysisSetting, analysisSettingOwner):
+            print('Retrieving report:', custTemplateName, custTemplateOwner)
             result = ''
 
-            if reportID == 'CUSTOM':
-                repTmp = client.factory.create('ReportTemplate')
-                repTmp._TemplateName = custTemplateName
-                repTmp._TemplateOwner = custTemplateOwner
+            repTmp = client.factory.create('ReportTemplate')
+            repTmp._TemplateName = custTemplateName
+            repTmp._TemplateOwner = custTemplateOwner
 
-                port = client.factory.create('InputPortfolio')
-                port._Name = por
-                port._Owner = porOwner
+            port = client.factory.create('InputPortfolio')
+            port._Name = por
+            port._Owner = porOwner
 
-                porList = client.factory.create('Portfolios')
-                porList.Portfolio = port
+            porList = client.factory.create('Portfolios')
+            porList.Portfolio = port
 
-                aSetting = client.factory.create('InputAnalysisSettings')
-                aSetting._Name = analysisSetting
-                aSetting._Owner = analysisSettingOwner
+            aSetting = client.factory.create('InputAnalysisSettings')
+            aSetting._Name = analysisSetting
+            aSetting._Owner = analysisSettingOwner
 
-                repDef = client.factory.create('RiskReportsDefinition')
-                repDef.AnalysisDate = date
-                repDef.Portfolios = porList
-                repDef.AnalysisSettings = aSetting
+            repDef = client.factory.create('RiskReportsDefinition')
+            repDef.AnalysisDate = date
+            repDef.Portfolios = porList
+            repDef.AnalysisSettings = aSetting
 
-                result = client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, None, repTmp)
-
-            if reportID == 'FACTOR_EXPOSURE' or reportID == 'RISK_ATTRIBUTION':
-                repParams = client.factory.create('ReportParametersDef')
-                repParams._ReportId = reportID
-
-                port = client.factory.create('InputPortfolio')
-                port._Name = por
-                port._Owner = porOwner
-
-                porList = client.factory.create('Portfolios')
-                porList.Portfolio = port
-
-                aSetting = client.factory.create('InputAnalysisSettings')
-                aSetting._Name = analysisSetting
-                aSetting._Owner = analysisSettingOwner
-
-                repDef = client.factory.create('RiskReportsDefinition')
-                repDef.AnalysisDate = date
-                repDef.Portfolios = porList
-                repDef.AnalysisSettings = aSetting
-
-                result = client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, repParams)
-
-            if reportID == 'BPM_PA_TOTAL_RETURN_REPORT' or reportID == 'BPM_PA_TS_ATTRIBUTION_REPORT':
-                port = client.factory.create('InputPortfolio')
-                port._Name = por
-                port._Owner = porOwner
-
-                porList = client.factory.create('Portfolios')
-                porList.Portfolio = port
-
-                aSetting = client.factory.create('InputAnalysisSettings')
-                aSetting._Name = analysisSetting
-                aSetting._Owner = analysisSettingOwner
-
-                ts = client.factory.create('InputTimeSeriesSettings')
-                ts._Name = tsName
-                ts._Owner = tsOwner
-
-                repDef = client.factory.create('ReturnAttribution')
-                repDef.TimeSeriesSettings = ts
-                repDef.Portfolios = porList
-                repDef.AnalysisSettings = aSetting
-
-                paJob = client.service.SubmitReportJob(usr, cid, pwd, repDef)
-                # print(paJob)
-                taskId = paJob._TaskId
-                jobId = paJob.JobId[0]
-
-                print('Waiting for job...')
-                print('TaskID: ', taskId)
-                print('JobID:  ', jobId)
-
-                time.sleep(3)
-
-                jobStat = 30
-                while jobStat == 30:
-                    try:
-                        jobStat = client.service.GetReportJobStatus(usr, cid, pwd, jobId)
-                    except WebFault as detail:
-                        print(detail)
-                    except:
-                        print("Unexpected error:", sys.exc_info()[0])
-                        raise
-                    if jobStat > 0:
-                        time.sleep(jobStat / 2)
-
-                if jobStat == -1:
-                    print('Error!!')
-                else:
-                    repParams = client.factory.create('ReportParametersDef')
-                    repParams._ReportId = reportID
-
-                    result = client.service.RetrieveReports(usr, cid, pwd, taskId, None, None, repParams)
-
-            if reportID == 'CUSTOM_TS':
-                port = client.factory.create('InputPortfolio')
-                port._Name = por
-                port._Owner = porOwner
-
-                porList = client.factory.create('Portfolios')
-                porList.Portfolio = port
-
-                aSetting = client.factory.create('InputAnalysisSettings')
-                aSetting._Name = analysisSetting
-                aSetting._Owner = analysisSettingOwner
-
-                ts = client.factory.create('InputTimeSeriesSettings')
-                ts._Name = tsName
-                ts._Owner = tsOwner
-
-                repDef = client.factory.create('ReturnAttribution')
-                repDef.TimeSeriesSettings = ts
-                repDef.Portfolios = porList
-                repDef.AnalysisSettings = aSetting
-
-                paJob = client.service.SubmitReportJob(usr, cid, pwd, repDef)
-                taskId = paJob._TaskId
-                jobId = paJob.JobId[0]
-
-                print('Waiting for job...')
-                print('TaskID: ', taskId)
-                print('JobID:  ', jobId)
-
-                time.sleep(3)
-
-                jobStat = 30
-                while jobStat == 30:
-                    try:
-                        jobStat = client.service.GetReportJobStatus(usr, cid, pwd, jobId)
-                    except WebFault as detail:
-                        print(detail)
-                    except:
-                        print("Unexpected error:", sys.exc_info()[0])
-                        raise
-                    if jobStat > 0:
-                        time.sleep(jobStat / 2)
-
-                if jobStat == -1:
-                    print('Error! The job has failed. To view the log please rerun from the BPM UI.')
-                    sys.exit()
-                else:
-                    repTmp = client.factory.create('ReportTemplate')
-                    repTmp._TemplateName = custTemplateName
-                    repTmp._TemplateOwner = custTemplateOwner
-
-                    repParams = client.factory.create('RetrieveReportsInputParams')
-                    repParams.TaskId = taskId
-                    repParams.ReportTemplate = repTmp
-
-                    result = client.service.RetrieveTemplateReports(usr, cid, pwd, repParams)
-                    result = result.Response
-                    print(result)
+            result = client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, None, repTmp)
 
             for item in result:
                 for data in item:
                     if data != "ExportJobReport":
-                        df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow
-                        dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow
+                        df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow  # report job details - attach to guid in db for a reference record with the matching data
+                        dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow  # estimation universe detail data
 
+        #   INTO THE DATABASE 
+            conn_str = os.environ["OperationsDatabaseConnectionString"] 
+            prms = parse.quote_plus(conn_str)
+            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
+            conn = eng.connect()
+
+        #   ESTIMATION UNIVERSE DETAILS DATA
+            sJobReference = uuid.uuid4()
             for pos in dx:
-                sTicker = pos.CellData[1]._Value
-                sSecName = pos.CellData[2]._Value
-                fQuantity = pos.CellData[3]._Value
-                fPrice = pos.CellData[4]._Value
-                fMktVal = pos.CellData[5]._Value
-                fWeight = pos.CellData[6]._Value
-                fMktCorr = pos.CellData[7]._Value
-                fBmkCorr = pos.CellData[8]._Value        
+                sAssetIdBarra = pos.CellData[1]._Value
+                sAssetNameBarra = pos.CellData[2]._Value
 
-                if sSecName != "":
-                    if fPrice != "N/A":
-                        LoadDataToDatabase(sTicker,  sSecName, fQuantity, fPrice, fMktVal, fWeight, fMktCorr, fBmkCorr)
-                        print(str(sTicker) + " " + str(sSecName) + " " + str(fQuantity)+ " " + str(fPrice)+ " " + str(fMktVal)+ " " + str(fWeight) + " " + str(fMktCorr) + " " + str(fBmkCorr))
+                if sAssetNameBarra != "":
+                  sFactorNameBarra = "Momentum_Exp"                  
+                  if pos.CellData[3]._Value != "N/A":
+                    fRetVal = float(pos.CellData[3]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Long-Term_Reversal_Exp"
+                  if pos.CellData[4]._Value != "N/A":
+                    fRetVal = float(pos.CellData[4]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Liquidity_Exp"
+                  if pos.CellData[5]._Value != "N/A":
+                    fRetVal = float(pos.CellData[5]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Earnings_Quality_Exp"
+                  if pos.CellData[6]._Value != "N/A":
+                    fRetVal = float(pos.CellData[6]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Growth_Exp"
+                  if pos.CellData[7]._Value != "N/A":
+                    fRetVal = float(pos.CellData[7]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Mid_Capitalization_Exp"
+                  if pos.CellData[8]._Value != "N/A":
+                    fRetVal = float(pos.CellData[8]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Divident_Yield_Exp"
+                  if pos.CellData[9]._Value != "N/A":
+                    fRetVal = float(pos.CellData[9]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Value_Exp"
+                  if pos.CellData[10]._Value != "N/A":
+                    fRetVal = float(pos.CellData[10]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Carbon_Efficiency_Exp"
+                  if pos.CellData[11]._Value != "N/A":
+                    fRetVal = float(pos.CellData[11]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Size_Exp"
+                  if pos.CellData[12]._Value != "N/A":
+                    fRetVal = float(pos.CellData[12]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Beta_Exp"
+                  if pos.CellData[13]._Value != "N/A":
+                    fRetVal = float(pos.CellData[13]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Profitability_Exp"
+                  if pos.CellData[14]._Value != "N/A":
+                    fRetVal = float(pos.CellData[14]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Earnings_Variability_Exp"
+                  if pos.CellData[15]._Value != "N/A":
+                    fRetVal = float(pos.CellData[15]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Investment_Quality_Exp"
+                  if pos.CellData[16]._Value != "N/A":
+                    fRetVal = float(pos.CellData[16]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Earnings_Yield_Exp"
+                  if pos.CellData[17]._Value != "N/A":
+                    fRetVal = float(pos.CellData[17]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Leverage_Exp"
+                  if pos.CellData[18]._Value != "N/A":
+                    fRetVal = float(pos.CellData[18]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Short_Interest_Exp"
+                  if pos.CellData[19]._Value != "N/A":
+                    fRetVal = float(pos.CellData[19]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "ESG_Exp"
+                  if pos.CellData[20]._Value != "N/A":
+                    fRetVal = float(pos.CellData[20]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                
+                  sFactorNameBarra = "Residual_Volatility_Exp"
+                  if pos.CellData[21]._Value != "N/A":
+                    fRetVal = float(pos.CellData[21]._Value)
+                    LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
 
-            print("Response end, code complete.")
 
+        #   CONNECTION CLOSE (CONSIDER TRY CATCH)
+            conn.close()
+            
         file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
         client = Client(file, location=file, timeout=5000, retxml=False)
 
@@ -712,7 +667,7 @@ class extMSCiTasks():
         cid = "rkvi74supd"
 
         # settings
-        conn_str = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:allostery-dev.database.windows.net,1433;Database=Operations;UID=svcOperations;PWD=Man@ger22!;MultipleActiveResultSets=False;Trusted_Connection=no;Auto_Commit=yes' 
+        conn_str = os.environ["OperationsDatabaseConnectionString"] 
         params = parse.quote_plus(conn_str)
         engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
         connection = engine.connect()
@@ -721,31 +676,24 @@ class extMSCiTasks():
         analysisDt = dn.AsOfDate.values[0]
         connection.close()
 
-        analysisDt = dt.datetime(2024,4,22)
-        portfolio = 'EFMGEMLT Estimation Universe'
-        portfolioOwner = usr
+        #analysisDt = dt.datetime(2024,4,22)
+        portfolio = "EFMGEMLT_ESTU_POR"
+        portfolioOwner = "SYSTEM"
         analysisSetting = "EFMGEMLTS-Gross"
         analysisSettingOwner = usr
-        timeSeriesName = "tsSettings"
-        timeSeriesOwner = usr
-        customTemplate = "AMF-Estimation-Universe"
+        customTemplate = "RiskGlobalEstExposures"
         customTemplateOwner = usr
 
-        try:    
-            # USE THIS ONE    
-            RetrieveReportsSample("CUSTOM", customTemplate, customTemplateOwner, analysisDt, portfolio, portfolioOwner, analysisSetting, analysisSettingOwner, None, None)
-            
+        try:      
+            RetrieveReportEstUnivData(customTemplate, customTemplateOwner, analysisDt, portfolio, portfolioOwner, analysisSetting, analysisSettingOwner)
         except WebFault as detail:
-            logging.exception("getResutsFromMsci WebFault exception: %s", detail)
+            logging.exception("getEstUniverseResutsFromMsci WebFault exception: %s", detail)
             print(detail)
         except Exception as e:
-            logging.exception("getResutsFromMsci function failed with exception: %s", sys.exc_info()[0])
+            logging.exception("getEstUniverseResutsFromMsci function failed with exception: %s", sys.exc_info()[0])
             print("getResutsFromMsci function failed with exception: %s", sys.exc_info()[0])
-
         except:
-            logging.exception("getResutsFromMsci function failed with and unexpected error: %s", sys.exc_info()[0])
-            print("getResutsFromMsci function failed with and unexpected error:", sys.exc_info()[0])
+            logging.exception("getEstUniverseResutsFromMsci function failed with and unexpected error: %s", sys.exc_info()[0])
+            print("getEstUniverseResutsFromMsci function failed with and unexpected error:", sys.exc_info()[0])
             raise
-
-        print("All ok, script completed.")
     
