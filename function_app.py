@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup as bs
 import sys
 from xml.etree import ElementTree as ET
 import uuid
+import pyodbc
 import asyncio
 
 app = func.FunctionApp()
@@ -74,7 +75,7 @@ async def fcGetEstUniverseRisk(req: func.HttpRequest) -> func.HttpResponse:
 
     try:
         msci = extMSCiTasks()
-        func_result = await msci.getEstUniverseResutsFromMsci()
+        await msci.getEstUniverseResutsFromMsci()
     except Exception as e:
         logging.exception("fcGetLatestMSCiData function failed with exception: %s", e)
 
@@ -420,7 +421,7 @@ class extMSCiTasks():
                 if sSecName != "":
                     if fPrice != "N/A":
                         LoadDataToDatabase(sTicker,  sSecName, fQuantity, fPrice, fMktVal, fWeight, fMktCorr, fBmkCorr)
-                        print(str(sTicker) + " " + str(sSecName) + " " + str(fQuantity)+ " " + str(fPrice)+ " " + str(fMktVal)+ " " + str(fWeight) + " " + str(fMktCorr) + " " + str(fBmkCorr))
+                        print(str(sTicker) + " " + str(sSecName) + " " + str(fQuantity) + " " + str(fPrice)+ " " + str(fMktVal)+ " " + str(fWeight) + " " + str(fMktCorr) + " " + str(fBmkCorr))
 
             print("Response end, code complete.")
 
@@ -504,191 +505,128 @@ class extMSCiTasks():
     async def getEstUniverseResutsFromMsci():        
         logging.info("Call to get Estimation Universe Matrix from MSCI via API")       
 
-        async def LoadEstUnivDataToDatabase(conn, dtAsOfDate, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference):
-            query = """
-            DECLARE @out int;
-            EXEC [dbo].[p_UpdateInsertFacExpRets] @AsOfDate = :p1, @AssetIdBarra = :p2, @AssetNameBarra = :p3, @FactorNameBarra = :p4, @RetVal = :p5, @JobReference = :p6;
-            SELECT @out AS the_output;
-            """
-            params = dict(p1= dtAsOfDate.strftime(r'%m/%d/%y'), p2=sAssetIdBarra, p3=sAssetNameBarra, p4=sFactorNameBarra, p5=fRetVal, p6=sJobReference)
-            exec_result =  await conn.execute(db.text(query), params).scalar()
-            comm_result = await conn.commit()
-            return exec_result, comm_result        
+        try:
 
-        async def RetrieveReportEstUnivData(custTemplateName, custTemplateOwner, date, por, porOwner, analysisSetting, analysisSettingOwner):
-            print('Retrieving report:', custTemplateName, custTemplateOwner)
+            async def LoadEstUnivDataToDatabase(conn, dtAsOfDate, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference):
+                query = """
+                DECLARE @out int;
+                EXEC [dbo].[p_UpdateInsertFacExpRets] @AsOfDate = :p1, @AssetIdBarra = :p2, @AssetNameBarra = :p3, @FactorNameBarra = :p4, @RetVal = :p5, @JobReference = :p6;
+                SELECT @out AS the_output;
+                """
+                params = dict(p1= dtAsOfDate.strftime(r'%m/%d/%y'), p2=sAssetIdBarra, p3=sAssetNameBarra, p4=sFactorNameBarra, p5=fRetVal, p6=sJobReference)
+                conn.execute(db.text(query), params).scalar()
+                conn.commit()
+                
+            file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+            client = Client(file, location=file, timeout=5000, retxml=False)
+
+            # Open connection to MSCI
+            usr = "ITAdmin"
+            pwd = "7GRYPnZQaVWnnLRzU9yd"
+            cid = "rkvi74supd"
+
+            # settings
+            conn_str = os.environ["OperationsDatabaseConnectionString"] 
+            params = parse.quote_plus(conn_str)
+            engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+            connection = engine.connect()
+            
+            dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues]", engine)
+            analysisDt = dn.AsOfDate.values[0]
+            connection.close()
+
+            portfolio = "EFMGEMLT_ESTU_POR"
+            portfolioOwner = "SYSTEM"
+            analysisSetting = "EFMGEMLTS-Gross"
+            analysisSettingOwner = usr
+            customTemplate = "RiskGlobalEstExposures"
+            customTemplateOwner = usr
+
             result = ''
-
             repTmp = client.factory.create('ReportTemplate')
-            repTmp._TemplateName = custTemplateName
-            repTmp._TemplateOwner = custTemplateOwner
-
+            repTmp._TemplateName = customTemplate
+            repTmp._TemplateOwner = customTemplateOwner
             port = client.factory.create('InputPortfolio')
-            port._Name = por
-            port._Owner = porOwner
-
+            port._Name = portfolio
+            port._Owner = portfolioOwner
             porList = client.factory.create('Portfolios')
             porList.Portfolio = port
-
             aSetting = client.factory.create('InputAnalysisSettings')
             aSetting._Name = analysisSetting
             aSetting._Owner = analysisSettingOwner
-
             repDef = client.factory.create('RiskReportsDefinition')
-            repDef.AnalysisDate = date
+            repDef.AnalysisDate = analysisDt
             repDef.Portfolios = porList
             repDef.AnalysisSettings = aSetting
 
-            client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, None, repTmp)
-
+            logging.info("Retrieving report: " + " " + str(customTemplate) + " " + str(customTemplateOwner))
+            result = client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, None, repTmp)
+            
+            dx = ''
             for item in result:
                 for data in item:
                     if data != "ExportJobReport":
-                        #df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow  # report job details - attach to guid in db for a reference record with the matching data
-                        dx = await data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow  # estimation universe detail data
+                        df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow  # report job details - attach to guid in db for a reference record with the matching data
+                        dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow  # estimation universe detail data
 
-        #   INTO THE DATABASE 
+            # INTO THE DATABASE
             sJobReference = uuid.uuid4()
-            conn_str = os.environ["OperationsDatabaseConnectionString"] 
-            prms = parse.quote_plus(conn_str)
-            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
-            conn = eng.connect()
+            conn_str = os.environ["OperationsDatabaseConnectionString"]
+            loop = asyncio.get_event_loop()            
+            params = parse.quote_plus(conn_str)
+            engine = await loop.run_in_executor(None, lambda: create_engine("mssql+pyodbc:///?odbc_connect=%s" % params))
+            conn = engine.connect()
 
-        #   ESTIMATION UNIVERSE DETAILS DATA            
             for pos in dx:
                 sAssetIdBarra = pos.CellData[1]._Value
                 sAssetNameBarra = pos.CellData[2]._Value
+                for i in range(21):
+                    if i > 2:
+                        if i == 3:
+                            sFactorNameBarra = "Momentum_Exp"
+                        elif i == 4:
+                            sFactorNameBarra = "Long-Term_Reversal_Exp"
+                        elif i == 5:
+                            sFactorNameBarra = "Liquidity_Exp"
+                        elif i == 6:
+                            sFactorNameBarra = "Earnings_Quality_Exp"
+                        elif i == 7:
+                            sFactorNameBarra = "Growth_Exp"
+                        elif i == 8:
+                            sFactorNameBarra = "Mid_Capitalization_Exp"
+                        elif i == 9:
+                            sFactorNameBarra = "Divident_Yield_Exp"
+                        elif i == 10:
+                            sFactorNameBarra = "Value_Exp"
+                        elif i == 11:
+                            sFactorNameBarra = "Carbon_Efficiency_Exp"
+                        elif i == 12:
+                            sFactorNameBarra = "Size_Exp"
+                        elif i == 13:
+                            sFactorNameBarra = "Beta_Exp"
+                        elif i == 14:
+                            sFactorNameBarra = "Profitability_Exp"
+                        elif i == 15:
+                            sFactorNameBarra = "Earnings_Variability_Exp"
+                        elif i == 16:
+                            sFactorNameBarra = "Investment_Quality_Exp"
+                        elif i == 17:
+                            sFactorNameBarra = "Earnings_Yield_Exp"
+                        elif i == 18:
+                            sFactorNameBarra = "Leverage_Exp"
+                        elif i == 19:
+                            sFactorNameBarra = "Short_Interest_Exp"
+                        elif i == 20:
+                            sFactorNameBarra = "ESG_Exp"
+                        elif i == 21:
+                            sFactorNameBarra = "Residual_Volatility_Exp"
 
-                if sAssetNameBarra != "":
-                  sFactorNameBarra = "Momentum_Exp"                  
-                  if pos.CellData[3]._Value != "N/A":
-                    fRetVal = float(pos.CellData[3]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Long-Term_Reversal_Exp"
-                  if pos.CellData[4]._Value != "N/A":
-                    fRetVal = float(pos.CellData[4]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Liquidity_Exp"
-                  if pos.CellData[5]._Value != "N/A":
-                    fRetVal = float(pos.CellData[5]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Earnings_Quality_Exp"
-                  if pos.CellData[6]._Value != "N/A":
-                    fRetVal = float(pos.CellData[6]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Growth_Exp"
-                  if pos.CellData[7]._Value != "N/A":
-                    fRetVal = float(pos.CellData[7]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Mid_Capitalization_Exp"
-                  if pos.CellData[8]._Value != "N/A":
-                    fRetVal = float(pos.CellData[8]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Divident_Yield_Exp"
-                  if pos.CellData[9]._Value != "N/A":
-                    fRetVal = float(pos.CellData[9]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Value_Exp"
-                  if pos.CellData[10]._Value != "N/A":
-                    fRetVal = float(pos.CellData[10]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Carbon_Efficiency_Exp"
-                  if pos.CellData[11]._Value != "N/A":
-                    fRetVal = float(pos.CellData[11]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Size_Exp"
-                  if pos.CellData[12]._Value != "N/A":
-                    fRetVal = float(pos.CellData[12]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Beta_Exp"
-                  if pos.CellData[13]._Value != "N/A":
-                    fRetVal = float(pos.CellData[13]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Profitability_Exp"
-                  if pos.CellData[14]._Value != "N/A":
-                    fRetVal = float(pos.CellData[14]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Earnings_Variability_Exp"
-                  if pos.CellData[15]._Value != "N/A":
-                    fRetVal = float(pos.CellData[15]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Investment_Quality_Exp"
-                  if pos.CellData[16]._Value != "N/A":
-                    fRetVal = float(pos.CellData[16]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Earnings_Yield_Exp"
-                  if pos.CellData[17]._Value != "N/A":
-                    fRetVal = float(pos.CellData[17]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Leverage_Exp"
-                  if pos.CellData[18]._Value != "N/A":
-                    fRetVal = float(pos.CellData[18]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Short_Interest_Exp"
-                  if pos.CellData[19]._Value != "N/A":
-                    fRetVal = float(pos.CellData[19]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "ESG_Exp"
-                  if pos.CellData[20]._Value != "N/A":
-                    fRetVal = float(pos.CellData[20]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                
-                  sFactorNameBarra = "Residual_Volatility_Exp"
-                  if pos.CellData[21]._Value != "N/A":
-                    fRetVal = float(pos.CellData[21]._Value)
-                    await LoadEstUnivDataToDatabase(conn, analysisDt,  sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                        if sAssetNameBarra != "":
+                            if pos.CellData[i]._Value != "N/A":
+                                fRetVal = float(pos.CellData[i]._Value)
+                                await LoadEstUnivDataToDatabase(conn, analysisDt, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
+                                logging.info(str(sAssetIdBarra) + " " + str(sAssetNameBarra) + " " + str(sFactorNameBarra) + " " + str(fRetVal))
 
-        #   CONNECTION CLOSE (CONSIDER TRY CATCH)
-            close_result = await conn.close()
-            return close_result
-            
-        file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
-        client = Client(file, location=file, timeout=5000, retxml=False)
-
-        # Open connection to MSCI
-        usr = "ITAdmin"
-        pwd = "7GRYPnZQaVWnnLRzU9yd"
-        cid = "rkvi74supd"
-
-        # settings
-        conn_str = os.environ["OperationsDatabaseConnectionString"] 
-        params = parse.quote_plus(conn_str)
-        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
-        connection = engine.connect()
-
-        dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues]", engine)
-        analysisDt = dn.AsOfDate.values[0]
-        connection.close()
-
-        #analysisDt = dt.datetime(2024,4,22)
-        portfolio = "EFMGEMLT_ESTU_POR"
-        portfolioOwner = "SYSTEM"
-        analysisSetting = "EFMGEMLTS-Gross"
-        analysisSettingOwner = usr
-        customTemplate = "RiskGlobalEstExposures"
-        customTemplateOwner = usr
-        b_rpt_result = False
-
-        try:      
-            rpt_result = await RetrieveReportEstUnivData(customTemplate, customTemplateOwner, analysisDt, portfolio, portfolioOwner, analysisSetting, analysisSettingOwner)
-            b_rpt_result = True
         except WebFault as detail:
             logging.exception("getEstUniverseResutsFromMsci WebFault exception: %s", detail)
             print(detail)
@@ -699,5 +637,5 @@ class extMSCiTasks():
             logging.exception("getEstUniverseResutsFromMsci function failed with and unexpected error: %s", sys.exc_info()[0])
             print("getEstUniverseResutsFromMsci function failed with and unexpected error:", sys.exc_info()[0])
             raise
-
-        return b_rpt_result
+        finally:
+            conn.close()
