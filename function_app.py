@@ -577,10 +577,12 @@ class extMSCiTasks():
             engine = await loop.run_in_executor(None, lambda: create_engine("mssql+pyodbc:///?odbc_connect=%s" % params))
             conn = engine.connect()
 
-            for pos in dx:
+            dxlen = len(dx) - 1
+            pdx = pd.DataFrame(dx)
+            for pos in pdx:
                 sAssetIdBarra = pos.CellData[1]._Value
                 sAssetNameBarra = pos.CellData[2]._Value
-                for i in range(21):
+                for i in range(3, dxlen):
                     if i > 2:
                         if i == 3:
                             sFactorNameBarra = "Momentum_Exp"
