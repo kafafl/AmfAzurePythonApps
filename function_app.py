@@ -15,9 +15,7 @@ import logging
 from bs4 import BeautifulSoup as bs
 import sys
 from xml.etree import ElementTree as ET
-import uuid
 import pyodbc
-import asyncio
 
 app = func.FunctionApp()
 
@@ -32,6 +30,7 @@ def fcMSCiPushPortfolio(req: func.HttpRequest) -> func.HttpResponse:
         msci.sendPortToMsci()
     except Exception as e:
         logging.exception("fcMSCiPushPortfolio function failed with exception: %s", e)
+        print('exception test')
     
     logging.info('Python HTTP trigger function [fcMSCiPushPortfolio] processed a request.')
     return func.HttpResponse(f"Success running AMF portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushPortfolio]", status_code=200)
@@ -47,6 +46,7 @@ def fcMSCiGetData(req: func.HttpRequest) -> func.HttpResponse:
         msci.getResutsFromMsci()
     except Exception as e:
         logging.exception("fcMSCiPushPortfolio function failed with exception: %s", e)
+        print("exception test")
 
     logging.info('Python HTTP trigger function [fcMSCiGetData] processed a request.')
     return func.HttpResponse(f"Success pulling AMF risk report data from MSCi [using AmfAzurePythonApps..fcMSCiGetData]", status_code=200)
@@ -63,21 +63,23 @@ def fcGetLatestMSCiData(req: func.HttpRequest) -> func.HttpResponse:
         html_msci = msci.getMSCiLatestResults()
     except Exception as e:
         logging.exception("fcGetLatestMSCiData function failed with exception: %s", e)
+        print("exception test")
 
     logging.info('Python HTTP trigger function [fcGetLatestMSCiData] processed a request.')
     return func.HttpResponse(html_msci, status_code=200)
 
 @app.function_name("fcGetEstUniverseRisk")
 @app.route(route="fcGetEstUniverseRisk", auth_level=func.AuthLevel.ANONYMOUS)
-async def fcGetEstUniverseRisk(req: func.HttpRequest) -> func.HttpResponse:
+def fcGetEstUniverseRisk(req: func.HttpRequest) -> func.HttpResponse:
 
     logging.info('Python HTTP trigger function [fcGetEstUniverseRisk] received a request.')
 
     try:
         msci = extMSCiTasks()
-        await msci.getEstUniverseResutsFromMsci()
+        msci.getEstUniverseResutsFromMsci()
     except Exception as e:
         logging.exception("fcGetLatestMSCiData function failed with exception: %s", e)
+        print("fcGetLatestMSCiData function failed with exception: %s", e)
 
     logging.info('Python HTTP trigger function [fcGetEstUniverseRisk] processed a request.')
     return func.HttpResponse(f"Success pulling AMF risk report data from MSCi [using AmfAzurePythonApps..fcGetEstUniverseRisk]", status_code=200)
@@ -179,7 +181,7 @@ class extMSCiTasks():
                 logging.exception("sendPortToMsci function failed with an unexpected error: %s", sys.exc_info()[0])
                 print("sendPortToMsci function failed with an unexpected error: %s", sys.exc_info()[0])
                 raise
-            #print(sleepTime)
+
             if sleepTime > 0:
                 time.sleep(5)
 
@@ -461,7 +463,7 @@ class extMSCiTasks():
             print(detail)
         except Exception as e:
             logging.exception("getResutsFromMsci function failed with exception: %s", sys.exc_info()[0])
-
+            print("getResutsFromMsci function failed with exception: %s", e)
         except:
             logging.exception("getResutsFromMsci function failed with and unexpected error: %s", sys.exc_info()[0])
             print("getResutsFromMsci function failed with and unexpected error:", sys.exc_info()[0])
@@ -502,21 +504,10 @@ class extMSCiTasks():
         return table
 
     @staticmethod
-    async def getEstUniverseResutsFromMsci():        
+    def getEstUniverseResutsFromMsci():        
         logging.info("Call to get Estimation Universe Matrix from MSCI via API")       
 
         try:
-
-            async def LoadEstUnivDataToDatabase(conn, dtAsOfDate, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference):
-                query = """
-                DECLARE @out int;
-                EXEC [dbo].[p_UpdateInsertFacExpRets] @AsOfDate = :p1, @AssetIdBarra = :p2, @AssetNameBarra = :p3, @FactorNameBarra = :p4, @RetVal = :p5, @JobReference = :p6;
-                SELECT @out AS the_output;
-                """
-                params = dict(p1= dtAsOfDate.strftime(r'%m/%d/%y'), p2=sAssetIdBarra, p3=sAssetNameBarra, p4=sFactorNameBarra, p5=fRetVal, p6=sJobReference)
-                conn.execute(db.text(query), params).scalar()
-                conn.commit()
-                
             file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
             client = Client(file, location=file, timeout=5000, retxml=False)
 
@@ -570,65 +561,16 @@ class extMSCiTasks():
                         dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow  # estimation universe detail data
 
             # INTO THE DATABASE
-            sJobReference = uuid.uuid4()
-            conn_str = os.environ["OperationsDatabaseConnectionString"]
-            loop = asyncio.get_event_loop()            
-            params = parse.quote_plus(conn_str)
-            engine = await loop.run_in_executor(None, lambda: create_engine("mssql+pyodbc:///?odbc_connect=%s" % params))
             conn = engine.connect()
-
-            dxlen = len(dx) - 1
             pdx = pd.DataFrame(dx)
-            for pos in pdx:
-                sAssetIdBarra = pos.CellData[1]._Value
-                sAssetNameBarra = pos.CellData[2]._Value
-                for i in range(3, dxlen):
-                    if i > 2:
-                        if i == 3:
-                            sFactorNameBarra = "Momentum_Exp"
-                        elif i == 4:
-                            sFactorNameBarra = "Long-Term_Reversal_Exp"
-                        elif i == 5:
-                            sFactorNameBarra = "Liquidity_Exp"
-                        elif i == 6:
-                            sFactorNameBarra = "Earnings_Quality_Exp"
-                        elif i == 7:
-                            sFactorNameBarra = "Growth_Exp"
-                        elif i == 8:
-                            sFactorNameBarra = "Mid_Capitalization_Exp"
-                        elif i == 9:
-                            sFactorNameBarra = "Divident_Yield_Exp"
-                        elif i == 10:
-                            sFactorNameBarra = "Value_Exp"
-                        elif i == 11:
-                            sFactorNameBarra = "Carbon_Efficiency_Exp"
-                        elif i == 12:
-                            sFactorNameBarra = "Size_Exp"
-                        elif i == 13:
-                            sFactorNameBarra = "Beta_Exp"
-                        elif i == 14:
-                            sFactorNameBarra = "Profitability_Exp"
-                        elif i == 15:
-                            sFactorNameBarra = "Earnings_Variability_Exp"
-                        elif i == 16:
-                            sFactorNameBarra = "Investment_Quality_Exp"
-                        elif i == 17:
-                            sFactorNameBarra = "Earnings_Yield_Exp"
-                        elif i == 18:
-                            sFactorNameBarra = "Leverage_Exp"
-                        elif i == 19:
-                            sFactorNameBarra = "Short_Interest_Exp"
-                        elif i == 20:
-                            sFactorNameBarra = "ESG_Exp"
-                        elif i == 21:
-                            sFactorNameBarra = "Residual_Volatility_Exp"
-
-                        if sAssetNameBarra != "":
-                            if pos.CellData[i]._Value != "N/A":
-                                fRetVal = float(pos.CellData[i]._Value)
-                                await LoadEstUnivDataToDatabase(conn, analysisDt, sAssetIdBarra, sAssetNameBarra, sFactorNameBarra, fRetVal, sJobReference)
-                                logging.info(str(sAssetIdBarra) + " " + str(sAssetNameBarra) + " " + str(sFactorNameBarra) + " " + str(fRetVal))
-
+            for index, row in pdx.iterrows():
+                row[index].to_sql("EstUniRaw", 
+                                              conn, 
+                                              index = False,
+                                              if_exists = 'append',
+                                              chunksize = 25000,
+                                              method = None)
+                        
         except WebFault as detail:
             logging.exception("getEstUniverseResutsFromMsci WebFault exception: %s", detail)
             print(detail)
