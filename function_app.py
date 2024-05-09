@@ -16,6 +16,9 @@ from bs4 import BeautifulSoup as bs
 import sys
 from xml.etree import ElementTree as ET
 import pyodbc
+from suds.sudsobject import asdict
+import json
+
 
 app = func.FunctionApp()
 
@@ -507,6 +510,22 @@ class extMSCiTasks():
     def getEstUniverseResutsFromMsci():        
         logging.info("Call to get Estimation Universe Matrix from MSCI via API")       
 
+        def ClearEstUnivRawTable():  
+            conn_str = os.environ["OperationsDatabaseConnectionString"]  
+            prms = parse.quote_plus(conn_str)
+            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
+
+            query = """
+            DECLARE @out int;
+            EXEC [dbo].[p_ClearRawEstUnivTable];
+            SELECT @out AS the_output;
+            """
+
+            with eng.connect() as conx:
+                resx = conx.execute(db.text(query)).scalar()
+                conx.commit()
+                conx.close()
+
         try:
             file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
             client = Client(file, location=file, timeout=5000, retxml=False)
@@ -516,17 +535,22 @@ class extMSCiTasks():
             pwd = "7GRYPnZQaVWnnLRzU9yd"
             cid = "rkvi74supd"
 
-            # settings
+            # DATABASE CONNECTION DETAILS
             conn_str = os.environ["OperationsDatabaseConnectionString"] 
             params = parse.quote_plus(conn_str)
             engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
             connection = engine.connect()
             
+            # GET THE LATEST NAV AND DATE
             dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues]", engine)
             analysisDt = dn.AsOfDate.values[0]
             connection.close()
 
-            portfolio = "EFMGEMLT_ESTU_POR"
+            # CLEAR THE TEMP/RAW TABLE 
+            ClearEstUnivRawTable()
+
+            # FETCH REPORT FROM MSCI
+            portfolio =  "EFMGEMLT_ESTU_POR"
             portfolioOwner = "SYSTEM"
             analysisSetting = "EFMGEMLTS-Gross"
             analysisSettingOwner = usr
@@ -534,18 +558,18 @@ class extMSCiTasks():
             customTemplateOwner = usr
 
             result = ''
-            repTmp = client.factory.create('ReportTemplate')
+            repTmp = client.factory.create("ReportTemplate")
             repTmp._TemplateName = customTemplate
             repTmp._TemplateOwner = customTemplateOwner
-            port = client.factory.create('InputPortfolio')
+            port = client.factory.create("InputPortfolio")
             port._Name = portfolio
             port._Owner = portfolioOwner
-            porList = client.factory.create('Portfolios')
+            porList = client.factory.create("Portfolios")
             porList.Portfolio = port
-            aSetting = client.factory.create('InputAnalysisSettings')
+            aSetting = client.factory.create("InputAnalysisSettings")
             aSetting._Name = analysisSetting
             aSetting._Owner = analysisSettingOwner
-            repDef = client.factory.create('RiskReportsDefinition')
+            repDef = client.factory.create("RiskReportsDefinition")
             repDef.AnalysisDate = analysisDt
             repDef.Portfolios = porList
             repDef.AnalysisSettings = aSetting
@@ -553,23 +577,49 @@ class extMSCiTasks():
             logging.info("Retrieving report: " + " " + str(customTemplate) + " " + str(customTemplateOwner))
             result = client.service.RetrieveReports(usr, cid, pwd, None, None, repDef, None, repTmp)
             
-            dx = ''
-            for item in result:
-                for data in item:
-                    if data != "ExportJobReport":
-                        df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow  # report job details - attach to guid in db for a reference record with the matching data
-                        dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow  # estimation universe detail data
+            logging.info("Converting MSCI API response to structured dataset...")
+            json_data = recursive_asdict(result)
+            report = json_data["ExportJobReport"]
+            headers = report[0]
+            data = report[1] 
+            report_params = []
+        
+            for item in headers["ReportBody"]["ReportBodyGroup"][0]["ReportBodyRow"]:
+                cellData = item['CellData']
+                param = {
+                    "key": cellData[1]["_Value"],
+                    "value": cellData[2]["_Value"]
+                }
+                report_params.append(param)
+    
+            cols = [ c for c in data["ReportDefinition"]["ColDefinition"][0]["ColDefData"]]
+        
+            report_data = []
+            for item in data["ReportBody"]["ReportBodyGroup"][0]["ReportBodyRow"]:
+                cellData = item["CellData"]
+                row = [c["_Value"] for c in cellData]
+                report_data.append(row)
+            
+            df = pd.DataFrame(report_data)
+            df.columns = [c["_DisplayName"] for c in cols]
+            factor_cols = [c for c in df.columns if "Exp" in c]
+            final_df = pd.melt(df, id_vars=["Indent", "Asset ID", "Asset Name"], value_vars=factor_cols, var_name="factor")
 
             # INTO THE DATABASE
-            conn = engine.connect()
-            pdx = pd.DataFrame(dx)
-            for index, row in pdx.iterrows():
-                row[index].to_sql("EstUniRaw", 
-                                              conn, 
-                                              index = False,
-                                              if_exists = 'append',
-                                              chunksize = 25000,
-                                              method = None)
+            logging.info("Loading report data results to the database ...")
+
+            # DATABASE CONNECTION DETAILS
+            conn_strz = os.environ["OperationsDatabaseConnectionString"] 
+            paramz = parse.quote_plus(conn_strz)
+            engz = create_engine("mssql+pyodbc:///?odbc_connect=%s" % paramz)
+            conz = engz.connect()
+
+            final_df.to_sql("zRaw_RiskEstUniverse", 
+                            conz, 
+                            index = False,
+                            if_exists = "append",
+                            chunksize = 25000,
+                            method = None)
                         
         except WebFault as detail:
             logging.exception("getEstUniverseResutsFromMsci WebFault exception: %s", detail)
@@ -582,4 +632,25 @@ class extMSCiTasks():
             print("getEstUniverseResutsFromMsci function failed with and unexpected error:", sys.exc_info()[0])
             raise
         finally:
-            conn.close()
+            conz.close()
+
+
+def recursive_asdict(d):
+    """Convert Suds object into serializable format."""
+    out = {}
+    for k, v in asdict(d).items():
+        if hasattr(v, '__keylist__'):
+            out[k] = recursive_asdict(v)
+        elif isinstance(v, list):
+            out[k] = []
+            for item in v:
+                if hasattr(item, '__keylist__'):
+                    out[k].append(recursive_asdict(item))
+                else:
+                    out[k].append(item)
+        else:
+            out[k] = v
+    return out
+
+def suds_to_json(data):
+    return json.dumps(recursive_asdict(data))
