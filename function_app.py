@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 import pyodbc
 from suds.sudsobject import asdict
 import json
+import uuid
 
 
 app = func.FunctionApp()
@@ -510,7 +511,8 @@ class extMSCiTasks():
     def getEstUniverseResutsFromMsci():        
         logging.info("Call to get Estimation Universe Matrix from MSCI via API")       
 
-        def ClearEstUnivRawTable():  
+        def ClearEstUnivRawTable():
+            logging.info("Call to clear raw estimation universe table...")  
             conn_str = os.environ["OperationsDatabaseConnectionString"]  
             prms = parse.quote_plus(conn_str)
             eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
@@ -525,6 +527,23 @@ class extMSCiTasks():
                 resx = conx.execute(db.text(query)).scalar()
                 conx.commit()
                 conx.close()
+
+        def ProcessRawEstUniverseData(AsOfDate, JobReference):
+            logging.info("Call to process raw estimation universe data...") 
+            connstr = os.environ["OperationsDatabaseConnectionString"]  
+            prmr= parse.quote_plus(connstr)
+            engr = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prmr)
+
+            query = """
+            DECLARE @out int;
+            EXEC [dbo].[p_ProcessRawEstUnivData] @AsOfDate = :p1, @JobReference = :p2;
+            SELECT @out AS the_output;
+            """
+            paramr = dict(p1= AsOfDate.strftime(r'%m/%d/%y'), p2=JobReference)
+            with engr.connect() as conr:
+                resr = conr.execute(db.text(query), paramr).scalar()
+                conr.commit()
+                conr.close()
 
         try:
             file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
@@ -544,6 +563,7 @@ class extMSCiTasks():
             # GET THE LATEST NAV AND DATE
             dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues]", engine)
             analysisDt = dn.AsOfDate.values[0]
+            #analysisDt = dt.date(2024, 5, 8)
             connection.close()
 
             # CLEAR THE TEMP/RAW TABLE 
@@ -621,6 +641,11 @@ class extMSCiTasks():
                             chunksize = 25000,
                             method = None)
                         
+
+            # PROCESS RAW DATA TRANSFER
+            JobRef = uuid.uuid4()
+            ProcessRawEstUniverseData(analysisDt, JobRef)
+
         except WebFault as detail:
             logging.exception("getEstUniverseResutsFromMsci WebFault exception: %s", detail)
             print(detail)
@@ -634,7 +659,7 @@ class extMSCiTasks():
         finally:
             conz.close()
 
-
+#HELPER FUNCTIONS
 def recursive_asdict(d):
     """Convert Suds object into serializable format."""
     out = {}
