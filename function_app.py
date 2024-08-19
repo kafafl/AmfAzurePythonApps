@@ -46,7 +46,6 @@ def fcMSCiPushPortfolio(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
     )
 
-
 @app.function_name("fcMSCiPushAmfBiotechPortfolio")
 @app.route(route="fcMSCiPushAmfBiotechPortfolio", auth_level=func.AuthLevel.ANONYMOUS)
 def fcMSCiPushAmfBiotechPortfolio(req: func.HttpRequest) -> func.HttpResponse:
@@ -70,6 +69,51 @@ def fcMSCiPushAmfBiotechPortfolio(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
     )
 
+@app.function_name("fcMSCiPushAmfAlphaLongPortfolio")
+@app.route(route="fcMSCiPushAmfAlphaLongPortfolio", auth_level=func.AuthLevel.ANONYMOUS)
+def fcMSCiPushAmfAlphaLongPortfolio(req: func.HttpRequest) -> func.HttpResponse:
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfAlphaLongPortfolio] received a request."
+    )
+
+    try:
+        msci = extMSCiTasks()
+        msci.sendAmfAlphaLongPortToMsci()
+    except Exception as e:
+        logging.exception("fcMSCiPushAmfAlphaLongPortfolio function failed with exception: %s", e)
+        print("exception test")
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfAlphaLongPortfolio] processed a request."
+    )
+    return func.HttpResponse(
+        f"Success running AMF Alpha Long portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushAmfAlphaLongPortfolio]",
+        status_code=200,
+    )
+
+@app.function_name("fcMSCiPushAmfAlphaShortPortfolio")
+@app.route(route="fcMSCiPushAmfAlphaShortPortfolio", auth_level=func.AuthLevel.ANONYMOUS)
+def fcMSCiPushAmfAlphaShortPortfolio(req: func.HttpRequest) -> func.HttpResponse:
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfAlphaShortPortfolio] received a request."
+    )
+
+    try:
+        msci = extMSCiTasks()
+        msci.sendAmfAlphaShortPortToMsci()
+    except Exception as e:
+        logging.exception("fcMSCiPushAmfAlphaShortPortfolio function failed with exception: %s", e)
+        print("exception test")
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfAlphaShortPortfolio] processed a request."
+    )
+    return func.HttpResponse(
+        f"Success running AMF Alpha Short portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushAmfAlphaShortPortfolio]",
+        status_code=200,
+    )
 
 @app.function_name("fcMSCiGetData")
 @app.route(route="fcMSCiGetData", auth_level=func.AuthLevel.ANONYMOUS)
@@ -89,7 +133,6 @@ def fcMSCiGetData(req: func.HttpRequest) -> func.HttpResponse:
         f"Success pulling AMF risk report data from MSCi [using AmfAzurePythonApps..fcMSCiGetData]",
         status_code=200,
     )
-
 
 @app.function_name("fcGetLatestMSCiData")
 @app.route(route="fcGetLatestMSCiData", auth_level=func.AuthLevel.ANONYMOUS)
@@ -111,7 +154,6 @@ def fcGetLatestMSCiData(req: func.HttpRequest) -> func.HttpResponse:
         "Python HTTP trigger function [fcGetLatestMSCiData] processed a request."
     )
     return func.HttpResponse(html_msci, status_code=200)
-
 
 @app.function_name("fcGetEstUniverseRisk")
 @app.route(route="fcGetEstUniverseRisk", auth_level=func.AuthLevel.ANONYMOUS)
@@ -135,7 +177,6 @@ def fcGetEstUniverseRisk(req: func.HttpRequest) -> func.HttpResponse:
         f"Success pulling AMF risk report data from MSCi [using AmfAzurePythonApps..fcGetEstUniverseRisk]",
         status_code=200,
     )
-
 
 @app.function_name("fcGetAmfBiotechFactorReturns")
 @app.route(route="fcGetAmfBiotechFactorReturns", auth_level=func.AuthLevel.ANONYMOUS)
@@ -414,10 +455,10 @@ class extMSCiTasks:
         myPosList = []
 
         df = df.reset_index()
-        for index, row in df.iterrows():
+        for index, row in df.iterrows():                        
             myPos = client.factory.create("Position")
-            myPos._Holdings = 1 #row["Quantity"]
-            myPos._Currency = "USD"
+            myPos._Holdings = 1
+            myPos._Currency = row["Crncy"].strip()
             myMIDList = []
             myMid = client.factory.create("MID")
             myMid._ID = row["Ticker"].strip()
@@ -499,6 +540,236 @@ class extMSCiTasks:
                 #for grp in ejr.Details.ImportLogDetail:
                     #logging.info(">> ", grp._ResultMsg, " ", grp._Detail1)
                     #print(">> ", grp._ResultMsg, " ", grp._Detail1)
+
+    @staticmethod
+    def sendAmfAlphaLongPortToMsci():
+        logging.info("Call to send AMF Alpha Long portfolio to MSCI via API")
+
+        conn_str = os.environ["OperationsDatabaseConnectionString"]
+        params = parse.quote_plus(conn_str)
+        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+        connection = engine.connect()
+
+        dal = pd.read_sql("EXEC dbo.p_GetAMFNavValues @EntityName = 'AMF LONG MARKET VALUE'", engine)
+        amfLMV = dal.NavValue.astype("double").values[0]
+        analysisDt = dal.AsOfDate.values[0]
+                
+        df = pd.read_sql(
+            "EXEC dbo.p_GetLongPortfolio @AsOfDate = '"
+            + analysisDt.strftime(r"%m/%d/%y")
+            + "'",
+            engine,
+        )
+        connection.close()
+
+        # Open connection to MSCI
+        usr = "ITAdmin"
+        pwd = "7GRYPnZQaVWnnLRzU9yd"
+        cid = "rkvi74supd"
+
+        wsdl = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+        client = Client(wsdl, location=wsdl, timeout=5000)
+
+        logging.info("Created MSCI API connection client")
+
+        # create a portfolio object
+        myPort = client.factory.create("Portfolio")
+        myPort._PortfolioName = "AMF-AlphaLong"
+
+        myPort._Owner = usr
+        myPort._PortfolioImportType = client.factory.create(
+            "PortfolioImportType"
+        ).BY_HOLDINGS
+        myPort._PortfolioValue = amfLMV
+
+        myPositions = client.factory.create("Positions")
+        myPosList = []
+
+        df = df.reset_index()
+        for index, row in df.iterrows():
+            quantity  = row["PosNet"]
+            ticker = row["BBYellowkey"].removesuffix("US Equity").strip()
+            
+            iden = row["BBYellowkey"]
+            ibeg = iden.find(" ")
+            tmpT = iden[ibeg:].strip()
+            iend = tmpT.find(" ")
+            ilen = len(tmpT)
+            ifin = tmpT[:iend-ilen].strip()
+            
+            match ifin:
+                case "US":
+                    currency = "USD"
+                case "CN":
+                    currency = "CAD"
+                case _:
+                    currency = "XXX"
+                        
+            myPos = client.factory.create("Position")
+            myPos._Holdings = quantity
+            myPos._Currency = currency
+            myMIDList = []
+            myMid = client.factory.create("MID")
+            myMid._ID = ticker
+            myMIDList.append(myMid)
+            myPos.MID = myMIDList
+            myPosList.append(myPos)
+
+        myPort._EffectiveStartDate = analysisDt
+        myPositions.Position = myPosList
+        myPort.Positions = myPositions
+
+        # SENDING PORTFOLIO TO THE MSCI API
+        logging.info("Sending portfolio to MSCi API ...")
+        print("Sending portfolio to MSCi API ...")
+        jobID = client.service.SubmitImportJob(
+            User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Alpha Long", Portfolio=[myPort]
+        )
+        #logging.info("Job Id for running batch: ", jobID)
+        #print("Job Id for running batch: ", jobID)
+        time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
+
+        sleepTime = 30
+        while sleepTime > 0:
+            try:
+                sleepTime = client.service.GetImportJobStatus(usr, cid, pwd, jobID)
+            except WebFault as detail:
+                logging.exception(detail)
+                print(detail)
+            except:
+                logging.exception(
+                    "sendAmfAlphaLongPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                print(
+                    "sendAmfAlphaLongPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                raise
+
+            if sleepTime > 0:
+                time.sleep(5)
+
+        logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
+
+        if sleepTime == 0:
+            print('AMF Alpha Long Push Job SUCCEEDED')
+        else:
+            print('AMF Alpha Long Push Job FAILED')
+
+    @staticmethod
+    def sendAmfAlphaShortPortToMsci():
+        logging.info("Call to send AMF Alpha Long portfolio to MSCI via API")
+
+        conn_str = os.environ["OperationsDatabaseConnectionString"]
+        params = parse.quote_plus(conn_str)
+        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+        connection = engine.connect()
+
+        dal = pd.read_sql("EXEC dbo.p_GetAMFNavValues @EntityName = 'AMF SHORT MARKET VALUE'", engine)
+        amfLMV = dal.NavValue.astype("double").values[0]
+        analysisDt = dal.AsOfDate.values[0]
+                
+        df = pd.read_sql(
+            "EXEC dbo.p_GetShortPortfolio @AsOfDate = '"
+            + analysisDt.strftime(r"%m/%d/%y")
+            + "'",
+            engine,
+        )
+        connection.close()
+
+        # Open connection to MSCI
+        usr = "ITAdmin"
+        pwd = "7GRYPnZQaVWnnLRzU9yd"
+        cid = "rkvi74supd"
+
+        wsdl = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+        client = Client(wsdl, location=wsdl, timeout=5000)
+
+        logging.info("Created MSCI API connection client")
+
+        # create a portfolio object
+        myPort = client.factory.create("Portfolio")
+        myPort._PortfolioName = "AMF-AlphaShort"
+
+        myPort._Owner = usr
+        myPort._PortfolioImportType = client.factory.create(
+            "PortfolioImportType"
+        ).BY_HOLDINGS
+        myPort._PortfolioValue = amfLMV
+
+        myPositions = client.factory.create("Positions")
+        myPosList = []
+
+        df = df.reset_index()
+        for index, row in df.iterrows():
+            quantity  = row["PosNet"]
+            ticker = row["BBYellowkey"].removesuffix("US Equity").strip()
+            
+            iden = row["BBYellowkey"]
+            ibeg = iden.find(" ")
+            tmpT = iden[ibeg:].strip()
+            iend = tmpT.find(" ")
+            ilen = len(tmpT)
+            ifin = tmpT[:iend-ilen].strip()
+            
+            match ifin:
+                case "US":
+                    currency = "USD"
+                case "CN":
+                    currency = "CAD"
+                case _:
+                    currency = "XXX"
+                        
+            myPos = client.factory.create("Position")
+            myPos._Holdings = quantity
+            myPos._Currency = currency
+            myMIDList = []
+            myMid = client.factory.create("MID")
+            myMid._ID = ticker
+            myMIDList.append(myMid)
+            myPos.MID = myMIDList
+            myPosList.append(myPos)
+
+        myPort._EffectiveStartDate = analysisDt
+        myPositions.Position = myPosList
+        myPort.Positions = myPositions
+
+        # SENDING PORTFOLIO TO THE MSCI API
+        logging.info("Sending portfolio to MSCi API ...")
+        print("Sending portfolio to MSCi API ...")
+        jobID = client.service.SubmitImportJob(
+            User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Alpha Short", Portfolio=[myPort]
+        )
+        time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
+
+        sleepTime = 30
+        while sleepTime > 0:
+            try:
+                sleepTime = client.service.GetImportJobStatus(usr, cid, pwd, jobID)
+            except WebFault as detail:
+                logging.exception(detail)
+                print(detail)
+            except:
+                logging.exception(
+                    "sendAmfAlphaShortPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                print(
+                    "sendAmfAlphaShortPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                raise
+
+            if sleepTime > 0:
+                time.sleep(5)
+
+        logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
+
+        if sleepTime == 0:
+            print('AMF Alpha Short Push Job SUCCEEDED')
+        else:
+            print('AMF Alpha Short Push Job FAILED')
 
     @staticmethod
     def getResutsFromMsci():
