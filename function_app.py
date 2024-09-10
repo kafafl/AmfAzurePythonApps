@@ -13,7 +13,6 @@ from urllib import parse
 import time
 import datetime as dt
 import logging
-from bs4 import BeautifulSoup as bs
 import sys
 from xml.etree import ElementTree as ET
 import pyodbc
