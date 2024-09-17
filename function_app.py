@@ -1,6 +1,7 @@
 # packages for Azure Function App
 import azure.functions as func
 import logging
+import sys
 import os
 
 # packages for MSCI
@@ -13,7 +14,7 @@ from urllib import parse
 import time
 import datetime as dt
 import logging
-import sys
+
 from xml.etree import ElementTree as ET
 import pyodbc
 from suds.sudsobject import asdict
