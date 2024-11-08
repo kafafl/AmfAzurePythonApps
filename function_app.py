@@ -36,7 +36,6 @@ def fcMSCiPushPortfolio(req: func.HttpRequest) -> func.HttpResponse:
         msci.sendPortToMsci()
     except Exception as e:
         logging.exception("fcMSCiPushPortfolio function failed with exception: %s", e)
-        print("exception test")
 
     logging.info(
         "Python HTTP trigger function [fcMSCiPushPortfolio] processed a request."
@@ -82,7 +81,6 @@ def fcMSCiPushAmfAlphaLongPortfolio(req: func.HttpRequest) -> func.HttpResponse:
         msci.sendAmfAlphaLongPortToMsci()
     except Exception as e:
         logging.exception("fcMSCiPushAmfAlphaLongPortfolio function failed with exception: %s", e)
-        print("exception test")
 
     logging.info(
         "Python HTTP trigger function [fcMSCiPushAmfAlphaLongPortfolio] processed a request."
@@ -105,13 +103,35 @@ def fcMSCiPushAmfAlphaShortPortfolio(req: func.HttpRequest) -> func.HttpResponse
         msci.sendAmfAlphaShortPortToMsci()
     except Exception as e:
         logging.exception("fcMSCiPushAmfAlphaShortPortfolio function failed with exception: %s", e)
-        print("exception test")
 
     logging.info(
         "Python HTTP trigger function [fcMSCiPushAmfAlphaShortPortfolio] processed a request."
     )
     return func.HttpResponse(
         f"Success running AMF Alpha Short portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushAmfAlphaShortPortfolio]",
+        status_code=200,
+    )
+
+@app.function_name("fcMSCiPushAmfBasketPortfolio")
+@app.route(route="fcMSCiPushAmfBasketPortfolio", auth_level=func.AuthLevel.ANONYMOUS)
+def fcMSCiPushAmfBasketPortfolio(req: func.HttpRequest) -> func.HttpResponse:
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfBasketPortfolio] received a request."
+    )
+
+    try:
+        msci = extMSCiTasks()
+        msci.sendAmfBasketPortToMsci()
+    except Exception as e:
+        logging.exception("fcMSCiPushAmfBasketPortfolio function failed with exception: %s", e)
+        print("exception test")
+
+    logging.info(
+        "Python HTTP trigger function [fcMSCiPushAmfBasketPortfolio] processed a request."
+    )
+    return func.HttpResponse(
+        f"Success running AMF Basket portfolio push to MSCi [using AmfAzurePythonApps..fcMSCiPushAmfBasketPortfolio]",
         status_code=200,
     )
 
@@ -201,6 +221,31 @@ def fcGetAmfBiotechFactorReturns(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
     )
 
+@app.function_name("fcDoUtilityCall")
+@app.route(route="fcDoUtilityCall", auth_level=func.AuthLevel.ANONYMOUS)
+def fcDoUtilityCall(req: func.HttpRequest) -> func.HttpResponse:
+
+    logging.info(
+        "Python HTTP trigger function [fcDoUtilityCall] received a request."
+    )
+
+    try:
+        msci = extMSCiTasks()
+        #ADD UTILITY METHODS HERE FOR EXECUTION 
+        msci.getPortFromMsciOverDateRange()
+        
+    except Exception as e:
+        logging.exception("fcDoUtilityCall function failed with exception: %s", e)
+        print("fcDoUtilityCall function failed with exception: %s", e)
+
+    logging.info(
+        "Python HTTP trigger function [fcDoUtilityCall] processed a request."
+    )
+    return func.HttpResponse(
+        f"Success running fcDoUtilityCall method from MSCi [using AmfAzurePythonApps..fcDoUtilityCall]",
+        status_code=200,
+    )
+
 
 class extMSCiTasks:
     def __init__(self):
@@ -238,7 +283,7 @@ class extMSCiTasks:
         df = pd.read_sql(
             "EXEC [dbo].[p_GetSimplePort] @PortDate ='"
             + analysisDt.strftime(r"%m/%d/%y")
-            + "'",
+            + "', @iRst = 2",
             engine,
         )
 
@@ -272,7 +317,7 @@ class extMSCiTasks:
         for index, row in df.iterrows():
             myPos = client.factory.create("Position")
             myPos._Holdings = row["Quantity"]
-            myPos._Currency = "USD"
+            myPos._Currency = row["Crncy"]
             myMIDList = []
             myMid = client.factory.create("MID")
             myMid._ID = row["TickerName"].strip()
@@ -288,12 +333,9 @@ class extMSCiTasks:
 
         # SENDING PORTFOLIO TO THE MSCI API
         logging.info("Sending portfolio to MSCi API ...")
-        print("Sending portfolio to MSCi API ...")
         jobID = client.service.SubmitImportJob(
-            User=usr, Client=cid, Password=pwd, JobName="MSCI test", Portfolio=[myPort]
+            User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Alpha", Portfolio=[myPort]
         )
-        logging.info("Job Id for running batch: ", jobID)
-        print("Job Id for running batch: ", jobID)
         time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
 
         sleepTime = 30
@@ -319,97 +361,10 @@ class extMSCiTasks:
 
         logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
 
-        logging.info(
-            "sendPortToMsci function call to MSCi API job name: ", logResponse._JobName
-        )
-        print(
-            "sendPortToMsci function call to MSCi  API job name: ", logResponse._JobName
-        )
-
         if sleepTime == 0:
-
-            logging.info("Job successful. Getting import log...")
-            print("Job successful. Getting import log...")
-            logging.info(
-                "Date, Name, Owner, Total, Rejects, Blanks, Duplicates, Deleted, Msg"
-            )
-            print("Date, Name, Owner, Total, Rejects, Blanks, Duplicates, Deleted, Msg")
-
-            for ejr in logResponse.LogGroups.ImportLogGroup:
-                logging.info(
-                    ejr._EffectiveDate,
-                    " ",
-                    ejr._Name,
-                    " ",
-                    ejr._Owner,
-                    " ",
-                    ejr._Total,
-                    " ",
-                    ejr._Rejected,
-                    " ",
-                    ejr._Blank,
-                    " ",
-                    ejr._Duplicate,
-                    " ",
-                    ejr._Deleted,
-                    " ",
-                    ejr._ResultMsg,
-                )
-                print(
-                    ejr._EffectiveDate,
-                    " ",
-                    ejr._Name,
-                    " ",
-                    ejr._Owner,
-                    " ",
-                    ejr._Total,
-                    " ",
-                    ejr._Rejected,
-                    " ",
-                    ejr._Blank,
-                    " ",
-                    ejr._Duplicate,
-                    " ",
-                    ejr._Deleted,
-                    " ",
-                    ejr._ResultMsg,
-                )
-                for grp in ejr.Details.ImportLogDetail:
-                    if grp._ResultMsg.startswith("Risk model"):
-                        logging.info(">> *** ", grp._ResultMsg, " ", grp._ResultCode)
-                        print(">> *** ", grp._ResultMsg, " ", grp._ResultCode)
-                    elif grp._ResultMsg.startswith("Success clear"):
-                        logging.info(
-                            ">> ",
-                            grp._ResultMsg,
-                            " ",
-                            grp._Detail1,
-                            " ",
-                            grp._ResultCode,
-                        )
-                        print(
-                            ">> ",
-                            grp._ResultMsg,
-                            " ",
-                            grp._Detail1,
-                            " ",
-                            grp._ResultCode,
-                        )
-                    else:
-                        logging.info(">> ", grp._ResultMsg, " ", grp._Detail1)
-                        print(">> ", grp._ResultMsg, " ", grp._Detail1)
-
+            print('AMF Alpha Short Push Job SUCCEEDED')
         else:
-            logging.info("Job failed. Please see log file for error details.")
-            print("Job failed. Please see log file for error details.")
-            logging.info("Date, Name, Owner")
-            print("Date, Name, Owner")
-            for ejr in logResponse.LogGroups.ImportLogGroup:
-                logging.info(ejr._EffectiveDate, ", ", ejr._Name, ", ", ejr._Owner)
-                print(ejr._EffectiveDate, ", ", ejr._Name, ", ", ejr._Owner)
-                for grp in ejr.Details.ImportLogDetail:
-                    logging.info(">> ", grp._ResultMsg, " ", grp._Detail1)
-                    print(">> ", grp._ResultMsg, " ", grp._Detail1)
+            print('AMF Alpha Short Push Job FAILED')
 
     @staticmethod
     def sendAmfBiotechPortToMsci():
@@ -449,24 +404,28 @@ class extMSCiTasks:
         myPort._PortfolioImportType = client.factory.create(
             "PortfolioImportType"
         ).BY_HOLDINGS
-        myPort._PortfolioValue = 100000000 #amfNav
+        myPort._PortfolioValue = 100000000 # $100M
 
         myPositions = client.factory.create("Positions")
         myPosList = []
 
         df = df.reset_index()
-        for index, row in df.iterrows():                        
+        for index, row in df.iterrows():
+            quantity  = 1000
+            iden = row["Ticker"]
+            ibeg = iden.find(" ")
+            ticker = iden[:ibeg].strip()            
+                                    
             myPos = client.factory.create("Position")
-            myPos._Holdings = 1
+            myPos._Holdings = quantity
             myPos._Currency = row["Crncy"].strip()
             myMIDList = []
             myMid = client.factory.create("MID")
-            myMid._ID = row["Ticker"].strip()
+            myMid._ID = ticker
             myMIDList.append(myMid)
             myPos.MID = myMIDList
-            myPosList.append(myPos)
+            myPosList.append(myPos)         
 
-        #analysisDt = dt.date(2024, 4, 30)
         myPort._EffectiveStartDate = analysisDt
         myPositions.Position = myPosList
         myPort.Positions = myPositions
@@ -477,8 +436,7 @@ class extMSCiTasks:
         jobID = client.service.SubmitImportJob(
             User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Biotech", Portfolio=[myPort]
         )
-        #logging.info("Job Id for running batch: ", jobID)
-        #print("Job Id for running batch: ", jobID)
+
         time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
 
         sleepTime = 30
@@ -504,42 +462,10 @@ class extMSCiTasks:
 
         logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
 
-        #logging.info("sendPortToMsci function call to MSCi API job name: ", logResponse._JobName)
-        #print("sendPortToMsci function call to MSCi  API job name: ", logResponse._JobName)
-
         if sleepTime == 0:
             print('AMF Biotech Push Job SUCCEEDED')
-            #logging.info("Job successful. Getting import log...")
-            #print("Job successful. Getting import log...")
-            #logging.info("Date, Name, Owner, Total, Rejects, Blanks, Duplicates, Deleted, Msg")
-            #print("Date, Name, Owner, Total, Rejects, Blanks, Duplicates, Deleted, Msg")
-
-            #for ejr in logResponse.LogGroups.ImportLogGroup:
-                #logging.info(ejr._EffectiveDate, " ", ejr._Name, " ", ejr._Owner, " ", ejr._Total, " ", ejr._Rejected, " ", ejr._Blank, " ", ejr._Duplicate, " ", ejr._Deleted, " ", ejr._ResultMsg,)
-                #print(ejr._EffectiveDate, " ", ejr._Name, " ", ejr._Owner, " ", ejr._Total, " ", ejr._Rejected, " ", ejr._Blank, " ", ejr._Duplicate, " ", ejr._Deleted, " ", ejr._ResultMsg,)
-                #for grp in ejr.Details.ImportLogDetail:
-                    #if grp._ResultMsg.startswith("Risk model"):
-                        #logging.info(">> *** ", grp._ResultMsg, " ", grp._ResultCode)
-                        #print(">> *** ", grp._ResultMsg, " ", grp._ResultCode)
-                    #elif grp._ResultMsg.startswith("Success clear"):
-                        #logging.info(">> ",grp._ResultMsg," ",grp._Detail1," ",grp._ResultCode,)
-                        #print(">> ",grp._ResultMsg," ",grp._Detail1," ",grp._ResultCode,)
-                    #else:
-                        #logging.info(">> ", grp._ResultMsg, " ", grp._Detail1)
-                        #print(">> ", grp._ResultMsg, " ", grp._Detail1)
-
         else:
             print('AMF Biotech Push Job FAILED')
-            #logging.info("Job failed. Please see log file for error details.")
-            #print("Job failed. Please see log file for error details.")
-            #logging.info("Date, Name, Owner")
-            #print("Date, Name, Owner")
-            #for ejr in logResponse.LogGroups.ImportLogGroup:
-                #logging.info(ejr._EffectiveDate, ", ", ejr._Name, ", ", ejr._Owner)
-                #print(ejr._EffectiveDate, ", ", ejr._Name, ", ", ejr._Owner)
-                #for grp in ejr.Details.ImportLogDetail:
-                    #logging.info(">> ", grp._ResultMsg, " ", grp._Detail1)
-                    #print(">> ", grp._ResultMsg, " ", grp._Detail1)
 
     @staticmethod
     def sendAmfAlphaLongPortToMsci():
@@ -555,7 +481,7 @@ class extMSCiTasks:
         analysisDt = dal.AsOfDate.values[0]
                 
         df = pd.read_sql(
-            "EXEC dbo.p_GetLongPortfolio @AsOfDate = '"
+            "EXEC dbo.p_GetLongPortfolio @bIncludeOptions = 1, @AsOfDate = '"
             + analysisDt.strftime(r"%m/%d/%y")
             + "'",
             engine,
@@ -587,11 +513,11 @@ class extMSCiTasks:
 
         df = df.reset_index()
         for index, row in df.iterrows():
-            quantity  = row["PosNet"]
-            ticker = row["BBYellowkey"].removesuffix("US Equity").strip()
-            
+            quantity  = row["PosLong"]
             iden = row["BBYellowkey"]
             ibeg = iden.find(" ")
+            ticker = iden[:ibeg].strip()
+            
             tmpT = iden[ibeg:].strip()
             iend = tmpT.find(" ")
             ilen = len(tmpT)
@@ -602,6 +528,8 @@ class extMSCiTasks:
                     currency = "USD"
                 case "CN":
                     currency = "CAD"
+                case "JP":
+                    currency = "JPY"
                 case _:
                     currency = "XXX"
                         
@@ -625,8 +553,7 @@ class extMSCiTasks:
         jobID = client.service.SubmitImportJob(
             User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Alpha Long", Portfolio=[myPort]
         )
-        #logging.info("Job Id for running batch: ", jobID)
-        #print("Job Id for running batch: ", jobID)
+
         time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
 
         sleepTime = 30
@@ -667,11 +594,11 @@ class extMSCiTasks:
         connection = engine.connect()
 
         dal = pd.read_sql("EXEC dbo.p_GetAMFNavValues @EntityName = 'AMF SHORT MARKET VALUE'", engine)
-        amfLMV = dal.NavValue.astype("double").values[0]
+        amfSMV = dal.NavValue.astype("double").values[0]
         analysisDt = dal.AsOfDate.values[0]
                 
         df = pd.read_sql(
-            "EXEC dbo.p_GetShortPortfolio @AsOfDate = '"
+            "EXEC dbo.p_GetShortPortfolio @bIncludeOptions = 1, @AsOfDate = '"
             + analysisDt.strftime(r"%m/%d/%y")
             + "'",
             engine,
@@ -696,18 +623,18 @@ class extMSCiTasks:
         myPort._PortfolioImportType = client.factory.create(
             "PortfolioImportType"
         ).BY_HOLDINGS
-        myPort._PortfolioValue = amfLMV
+        myPort._PortfolioValue = amfSMV
 
         myPositions = client.factory.create("Positions")
         myPosList = []
 
         df = df.reset_index()
         for index, row in df.iterrows():
-            quantity  = row["PosNet"]
-            ticker = row["BBYellowkey"].removesuffix("US Equity").strip()
-            
+            quantity  = row["PosShort"]            
             iden = row["BBYellowkey"]
             ibeg = iden.find(" ")
+            ticker = iden[:ibeg].strip()
+            
             tmpT = iden[ibeg:].strip()
             iend = tmpT.find(" ")
             ilen = len(tmpT)
@@ -718,6 +645,8 @@ class extMSCiTasks:
                     currency = "USD"
                 case "CN":
                     currency = "CAD"
+                case "JP":
+                    currency = "JPY"
                 case _:
                     currency = "XXX"
                         
@@ -730,7 +659,7 @@ class extMSCiTasks:
             myMIDList.append(myMid)
             myPos.MID = myMIDList
             myPosList.append(myPos)
-
+            
         myPort._EffectiveStartDate = analysisDt
         myPositions.Position = myPosList
         myPort.Positions = myPositions
@@ -770,6 +699,118 @@ class extMSCiTasks:
             print('AMF Alpha Short Push Job SUCCEEDED')
         else:
             print('AMF Alpha Short Push Job FAILED')
+
+    @staticmethod
+    def sendAmfBasketPortToMsci():
+        logging.info("Call to send AMF Basket portfolio to MSCI via API")
+
+        conn_str = os.environ["OperationsDatabaseConnectionString"]
+        params = parse.quote_plus(conn_str)
+        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+        connection = engine.connect()
+
+        dal = pd.read_sql("EXEC dbo.p_GetAMFNavValues @EntityName = 'AMF SHORT MARKET VALUE'", engine)
+        amfLMV = dal.NavValue.astype("double").values[0]
+        analysisDt = dal.AsOfDate.values[0]
+                
+        df = pd.read_sql(
+            "EXEC dbo.p_GetAmfBasketDetails @AsOfDate = '"
+            + analysisDt.strftime(r"%m/%d/%y")
+            + "'",
+            engine,
+        )
+        connection.close()
+
+        # Open connection to MSCI
+        usr = "ITAdmin"
+        pwd = "7GRYPnZQaVWnnLRzU9yd"
+        cid = "rkvi74supd"
+
+        wsdl = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+        client = Client(wsdl, location=wsdl, timeout=5000)
+
+        logging.info("Created MSCI API connection client")
+
+        # create a portfolio object
+        myPort = client.factory.create("Portfolio")
+        myPort._PortfolioName = "AMF-Basket-MSA1BIOH"
+
+        myPort._Owner = usr
+        myPort._PortfolioImportType = client.factory.create(
+            "PortfolioImportType"
+        ).BY_HOLDINGS
+        myPort._PortfolioValue = amfLMV
+
+        myPositions = client.factory.create("Positions")
+        myPosList = []
+
+        df = df.reset_index()
+        for index, row in df.iterrows():
+            quantity  = row["Shares"]            
+            iden = row["Ticker"]
+            ibeg = iden.find(" ")
+            ticker = iden[:ibeg].strip()
+            ifin = iden[ibeg:].strip()
+            
+            match ifin:
+                case "US":
+                    currency = "USD"
+                case "CN":
+                    currency = "CAD"
+                case "JP":
+                    currency = "JPY"
+                case _:
+                    currency = "XXX"
+                        
+            myPos = client.factory.create("Position")
+            myPos._Holdings = quantity
+            myPos._Currency = currency
+            myMIDList = []
+            myMid = client.factory.create("MID")
+            myMid._ID = ticker
+            myMIDList.append(myMid)
+            myPos.MID = myMIDList
+            myPosList.append(myPos)
+            
+        myPort._EffectiveStartDate = analysisDt
+        myPositions.Position = myPosList
+        myPort.Positions = myPositions
+
+        # SENDING PORTFOLIO TO THE MSCI API
+        logging.info("Sending portfolio to MSCi API ...")
+        print("Sending portfolio to MSCi API ...")
+        jobID = client.service.SubmitImportJob(
+            User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Basket portfolio", Portfolio=[myPort]
+        )
+        time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
+
+        sleepTime = 30
+        while sleepTime > 0:
+            try:
+                sleepTime = client.service.GetImportJobStatus(usr, cid, pwd, jobID)
+            except WebFault as detail:
+                logging.exception(detail)
+                print(detail)
+            except:
+                logging.exception(
+                    "sendAmfBasketPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                print(
+                    "sendAmfBasketPortToMsci function failed with an unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                raise
+
+            if sleepTime > 0:
+                time.sleep(5)
+
+        logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
+
+        if sleepTime == 0:
+            print('AMF Basket Push Job SUCCEEDED')
+        else:
+            print('AMF Baset Push Job FAILED')
 
     @staticmethod
     def getResutsFromMsci():
@@ -1085,7 +1126,6 @@ class extMSCiTasks:
 
         except WebFault as detail:
             logging.exception("getResutsFromMsci WebFault exception: %s", detail)
-            print(detail)
         except Exception as e:
             logging.exception(
                 "getResutsFromMsci function failed with exception: %s",
@@ -1374,7 +1414,6 @@ class extMSCiTasks:
             # GET THE LATEST NAV AND DATE
             dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues]", engine)
             analysisDt = dn.AsOfDate.values[0]
-            #analysisDt = dt.date(2024, 4, 30)
             connection.close()
 
             # CLEAR THE TEMP/RAW TABLE
@@ -1412,6 +1451,8 @@ class extMSCiTasks:
                 + " "
                 + str(customTemplateOwner)
             )
+            
+        #   THIS IS WHERE THE DATA GETS PULLED BACK FROM THE API   #
             result = client.service.RetrieveReports(
                 usr, cid, pwd, None, None, repDef, None, repTmp
             )
@@ -1497,6 +1538,478 @@ class extMSCiTasks:
         finally:
             conz.close()
 
+    @staticmethod
+    def sendPortToMsciOverDateRange():
+        logging.info("Call to send AMF portfolio to MSCI via API")
+
+        def ClearAsOfMSCiData(dtAsOfDate):
+            conn_str = os.environ["OperationsDatabaseConnectionString"]
+            prms = parse.quote_plus(conn_str)
+            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
+
+            query = """
+            DECLARE @out int;
+            EXEC [dbo].[p_ClearMSCiBetas] @AsOfDate = :p1;
+            SELECT @out AS the_output;
+            """
+            params = dict(p1=dtAsOfDate)
+
+            with eng.connect() as conn:
+                result = conn.execute(db.text(query), params).scalar()
+                conn.commit()
+                conn.close()
+
+        conn_str = os.environ["OperationsDatabaseConnectionString"]
+        params = parse.quote_plus(conn_str)
+        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+        connection = engine.connect()
+
+        #UPDATE THE DATES IN THE PROC STRING FOR HISTORICAL PERIODS
+        dx = pd.read_sql("EXEC dbo.p_GetDateMasterRange @BegDate = '01/01/2024', @EndDate = '01/01/2024'", engine)
+        
+        dx = dx.reset_index()
+        for index, row in dx.iterrows():
+            analysisDt = row["AsOfDate"]
+            
+            logging.info("Starting portfolio load for " + analysisDt.strftime(r"%m/%d/%y"))
+            
+            dn = pd.read_sql("EXEC [dbo].[p_GetAMFNavValues] @AsOfDate = '" + analysisDt.strftime(r"%m/%d/%y") + "'", engine,)
+            amfNav = dn.NavValue.astype("double").values[0]
+            
+            logging.info("Fetching AMF NAV of " + "{:,}".format(amfNav) + " from database.")
+            
+            #analysisDt = dn.AsOfDate.values[0]
+            
+            df = pd.read_sql(
+                "EXEC [dbo].[p_GetSimplePort] @PortDate ='"
+                + analysisDt.strftime(r"%m/%d/%y")
+                + "', @iRst = 2",
+                engine,
+            )
+
+            logging.info("Clearing MSCi data for " + analysisDt.strftime(r"%m/%d/%y")  + " from database.")
+            ClearAsOfMSCiData(analysisDt)
+            
+
+            # Open connection to MSCI
+            usr = "ITAdmin"
+            pwd = "7GRYPnZQaVWnnLRzU9yd"
+            cid = "rkvi74supd"
+
+            wsdl = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+            client = Client(wsdl, location=wsdl, timeout=5000)
+
+            logging.info("Sending portfolio for " + analysisDt.strftime(r"%m/%d/%y") + "")
+
+            # create a portfolio object
+            myPort = client.factory.create("Portfolio")
+            myPort._PortfolioName = "AMF-Main-Daily"
+
+            myPort._Owner = usr
+            myPort._PortfolioImportType = client.factory.create(
+                "PortfolioImportType"
+            ).BY_HOLDINGS
+            myPort._PortfolioValue = amfNav
+
+            myPositions = client.factory.create("Positions")
+            myPosList = []
+
+            df = df.reset_index()
+            for index, row in df.iterrows():
+                myPos = client.factory.create("Position")
+                myPos._Holdings = row["Quantity"]
+                myPos._Currency = row["Crncy"]
+                myMIDList = []
+                myMid = client.factory.create("MID")
+                myMid._ID = row["TickerName"].strip()
+                myMIDList.append(myMid)
+                myPos.MID = myMIDList
+                myPosList.append(myPos)
+
+            myPort._EffectiveStartDate = analysisDt
+
+            myPositions.Position = myPosList
+            myPort.Positions = myPositions
+
+            # SENDING PORTFOLIO TO THE MSCI API
+            jobID = client.service.SubmitImportJob(
+                User=usr, Client=cid, Password=pwd, JobName="MSCI AMF Alpha", Portfolio=[myPort]
+            )
+            time.sleep(5)  # wait time of 5 secs is required before GetImportJobStatus
+
+            sleepTime = 30
+            while sleepTime > 0:
+                try:
+                    sleepTime = client.service.GetImportJobStatus(usr, cid, pwd, jobID)
+                except WebFault as detail:
+                    logging.exception(detail)
+                except:
+                    logging.exception(
+                        "sendPortToMsci function failed with an unexpected error: %s",
+                        sys.exc_info()[0],
+                    )
+                    raise
+
+                if sleepTime > 0:
+                    time.sleep(5)
+
+            logResponse = client.service.GetImportJobLog(usr, cid, pwd, jobID)
+
+            if sleepTime == 0:
+                logging.info("Completed loading portfolio for " + analysisDt.strftime(r"%m/%d/%y") +  "")
+            else:
+                logging.exception(
+                    "getEstUniverseResutsFromMsci function failed with and unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                print(
+                    "getEstUniverseResutsFromMsci function failed with and unexpected error:",
+                    sys.exc_info()[0],
+                )
+                raise
+        connection.close()
+
+    @staticmethod
+    def getPortFromMsciOverDateRange():
+        logging.info("Call to get AMF portfolio from MSCI via API")
+        
+        def LoadDataToDatabase(
+            sTicker, sSecName, fQuantity, fPrice, fMktVal, fWeight, fMktCorr, fBmkCorr
+        ):
+            logging.info("Saving results to the database for " + analysisDt.strftime(r"%m/%d/%y") + "")
+            conn_str = os.environ["OperationsDatabaseConnectionString"]
+            prms = parse.quote_plus(conn_str)
+            eng = db.create_engine("mssql+pyodbc:///?odbc_connect=%s" % prms)
+
+            query = """
+            DECLARE @out int;
+            EXEC [dbo].[p_SetCorrValuesMSCi] @AsOfDate = :p1, @PortfolioName = :p2, @Ticker = :p3, @SecName = :p4, @Quantity = :p5, @Price = :p6, @MktVal = :p7, @WeightMod = :p8, @MktCorr = :p9, @BmkCorr = :p10;
+            SELECT @out AS the_output;
+            """
+            params = dict(
+                p1=analysisDt.strftime(r"%m/%d/%y"),
+                p2=portfolio,
+                p3=sTicker,
+                p4=sSecName,
+                p5=fQuantity,
+                p6=fPrice,
+                p7=fMktVal,
+                p8=fWeight,
+                p9=fMktCorr,
+                p10=fBmkCorr,
+            )
+            with eng.connect() as conn:
+                result = conn.execute(db.text(query), params).scalar()
+                conn.commit()
+                conn.close()
+
+        # Runs a report based on the reportID obtained from the supported reports
+        def RetrieveReportsSample(
+            reportID,
+            custTemplateName,
+            custTemplateOwner,
+            date,
+            por,
+            porOwner,
+            analysisSetting,
+            analysisSettingOwner,
+            tsName,
+            tsOwner,
+        ):
+            print("Retrieving report:", reportID, custTemplateName, custTemplateOwner)
+            result = ""
+
+            if reportID == "CUSTOM":
+                repTmp = client.factory.create("ReportTemplate")
+                repTmp._TemplateName = custTemplateName
+                repTmp._TemplateOwner = custTemplateOwner
+
+                port = client.factory.create("InputPortfolio")
+                port._Name = por
+                port._Owner = porOwner
+
+                porList = client.factory.create("Portfolios")
+                porList.Portfolio = port
+
+                aSetting = client.factory.create("InputAnalysisSettings")
+                aSetting._Name = analysisSetting
+                aSetting._Owner = analysisSettingOwner
+
+                repDef = client.factory.create("RiskReportsDefinition")
+                repDef.AnalysisDate = date
+                repDef.Portfolios = porList
+                repDef.AnalysisSettings = aSetting
+
+                result = client.service.RetrieveReports(
+                    usr, cid, pwd, None, None, repDef, None, repTmp
+                )
+
+            if reportID == "FACTOR_EXPOSURE" or reportID == "RISK_ATTRIBUTION":
+                repParams = client.factory.create("ReportParametersDef")
+                repParams._ReportId = reportID
+
+                port = client.factory.create("InputPortfolio")
+                port._Name = por
+                port._Owner = porOwner
+
+                porList = client.factory.create("Portfolios")
+                porList.Portfolio = port
+
+                aSetting = client.factory.create("InputAnalysisSettings")
+                aSetting._Name = analysisSetting
+                aSetting._Owner = analysisSettingOwner
+
+                repDef = client.factory.create("RiskReportsDefinition")
+                repDef.AnalysisDate = date
+                repDef.Portfolios = porList
+                repDef.AnalysisSettings = aSetting
+
+                result = client.service.RetrieveReports(
+                    usr, cid, pwd, None, None, repDef, repParams
+                )
+
+            if (
+                reportID == "BPM_PA_TOTAL_RETURN_REPORT"
+                or reportID == "BPM_PA_TS_ATTRIBUTION_REPORT"
+            ):
+                port = client.factory.create("InputPortfolio")
+                port._Name = por
+                port._Owner = porOwner
+
+                porList = client.factory.create("Portfolios")
+                porList.Portfolio = port
+
+                aSetting = client.factory.create("InputAnalysisSettings")
+                aSetting._Name = analysisSetting
+                aSetting._Owner = analysisSettingOwner
+
+                ts = client.factory.create("InputTimeSeriesSettings")
+                ts._Name = tsName
+                ts._Owner = tsOwner
+
+                repDef = client.factory.create("ReturnAttribution")
+                repDef.TimeSeriesSettings = ts
+                repDef.Portfolios = porList
+                repDef.AnalysisSettings = aSetting
+
+                paJob = client.service.SubmitReportJob(usr, cid, pwd, repDef)
+                # print(paJob)
+                taskId = paJob._TaskId
+                jobId = paJob.JobId[0]
+
+                print("Waiting for job...")
+                print("TaskID: ", taskId)
+                print("JobID:  ", jobId)
+
+                time.sleep(3)
+
+                jobStat = 30
+                while jobStat == 30:
+                    try:
+                        jobStat = client.service.GetReportJobStatus(
+                            usr, cid, pwd, jobId
+                        )
+                    except WebFault as detail:
+                        print(detail)
+                    except:
+                        print("Unexpected error:", sys.exc_info()[0])
+                        raise
+                    if jobStat > 0:
+                        time.sleep(jobStat / 2)
+
+                if jobStat == -1:
+                    print("Error!!")
+                else:
+                    repParams = client.factory.create("ReportParametersDef")
+                    repParams._ReportId = reportID
+
+                    result = client.service.RetrieveReports(
+                        usr, cid, pwd, taskId, None, None, repParams
+                    )
+
+            if reportID == "CUSTOM_TS":
+                port = client.factory.create("InputPortfolio")
+                port._Name = por
+                port._Owner = porOwner
+
+                porList = client.factory.create("Portfolios")
+                porList.Portfolio = port
+
+                aSetting = client.factory.create("InputAnalysisSettings")
+                aSetting._Name = analysisSetting
+                aSetting._Owner = analysisSettingOwner
+
+                ts = client.factory.create("InputTimeSeriesSettings")
+                ts._Name = tsName
+                ts._Owner = tsOwner
+
+                repDef = client.factory.create("ReturnAttribution")
+                repDef.TimeSeriesSettings = ts
+                repDef.Portfolios = porList
+                repDef.AnalysisSettings = aSetting
+
+                paJob = client.service.SubmitReportJob(usr, cid, pwd, repDef)
+                taskId = paJob._TaskId
+                jobId = paJob.JobId[0]
+
+                print("Waiting for job...")
+                print("TaskID: ", taskId)
+                print("JobID:  ", jobId)
+
+                time.sleep(3)
+
+                jobStat = 30
+                while jobStat == 30:
+                    try:
+                        jobStat = client.service.GetReportJobStatus(
+                            usr, cid, pwd, jobId
+                        )
+                    except WebFault as detail:
+                        print(detail)
+                    except:
+                        print("Unexpected error:", sys.exc_info()[0])
+                        raise
+                    if jobStat > 0:
+                        time.sleep(jobStat / 2)
+
+                if jobStat == -1:
+                    print(
+                        "Error! The job has failed. To view the log please rerun from the BPM UI."
+                    )
+                    sys.exit()
+                else:
+                    repTmp = client.factory.create("ReportTemplate")
+                    repTmp._TemplateName = custTemplateName
+                    repTmp._TemplateOwner = custTemplateOwner
+
+                    repParams = client.factory.create("RetrieveReportsInputParams")
+                    repParams.TaskId = taskId
+                    repParams.ReportTemplate = repTmp
+
+                    result = client.service.RetrieveTemplateReports(
+                        usr, cid, pwd, repParams
+                    )
+                    result = result.Response
+                    print(result)
+
+            for item in result:
+                for data in item:
+                    if data != "ExportJobReport":
+                        df = data[0].ReportBody.ReportBodyGroup[0].ReportBodyRow
+                        dx = data[1].ReportBody.ReportBodyGroup[0].ReportBodyRow
+
+            for pos in dx:
+                sTicker = pos.CellData[1]._Value
+                sSecName = pos.CellData[2]._Value
+                fQuantity = pos.CellData[3]._Value
+                fPrice = pos.CellData[4]._Value
+                fMktVal = pos.CellData[5]._Value
+                fWeight = pos.CellData[6]._Value
+                fMktCorr = pos.CellData[7]._Value
+                fBmkCorr = pos.CellData[8]._Value
+
+                if sSecName != "":
+                    if fPrice != "N/A":
+                        LoadDataToDatabase(
+                            sTicker,
+                            sSecName,
+                            fQuantity,
+                            fPrice,
+                            fMktVal,
+                            fWeight,
+                            fMktCorr,
+                            fBmkCorr,
+                        )
+                        print(
+                            str(sTicker)
+                            + " "
+                            + str(sSecName)
+                            + " "
+                            + str(fQuantity)
+                            + " "
+                            + str(fPrice)
+                            + " "
+                            + str(fMktVal)
+                            + " "
+                            + str(fWeight)
+                            + " "
+                            + str(fMktCorr)
+                            + " "
+                            + str(fBmkCorr))
+
+            print("Response end, code complete.")
+
+        conn_str = os.environ["OperationsDatabaseConnectionString"]
+        params = parse.quote_plus(conn_str)
+        engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+        connection = engine.connect()
+
+        #UPDATE THE DATES IN THE PROC STRING FOR HISTORICAL PERIODS
+        dx = pd.read_sql("EXEC dbo.p_GetDateMasterRange @BegDate = '01/01/2024', @EndDate = '01/01/2024'", engine)
+        connection.close()
+        
+        dx = dx.reset_index()
+        for index, row in dx.iterrows():
+            analysisDt = row["AsOfDate"]
+
+            file = "https://www.barraone.com/axis2/services/BDTService?wsdl"
+            client = Client(file, location=file, timeout=5000, retxml=False)
+
+            # Open connection to MSCI
+            usr = "ITAdmin"
+            pwd = "7GRYPnZQaVWnnLRzU9yd"
+            cid = "rkvi74supd"
+
+            # settings
+            conn_str = os.environ["OperationsDatabaseConnectionString"]
+            params = parse.quote_plus(conn_str)
+            engine = create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+            connection = engine.connect()
+
+            portfolio = "AMF-Main-Daily"
+            portfolioOwner = usr
+            analysisSetting = "EFMGEMLTS-Benchmark"
+            analysisSettingOwner = usr
+            timeSeriesName = "tsSettings"
+            timeSeriesOwner = usr
+            customTemplate = "AMF-PositionReportBetas"
+            customTemplateOwner = usr
+            logging.info("Requesting risk analytics for " + analysisDt.strftime(r"%m/%d/%y") + "")
+
+            try:
+                # USE THIS ONE
+                RetrieveReportsSample(
+                    "CUSTOM",
+                    customTemplate,
+                    customTemplateOwner,
+                    analysisDt,
+                    portfolio,
+                    portfolioOwner,
+                    analysisSetting,
+                    analysisSettingOwner,
+                    None,
+                    None,
+                )
+
+            except WebFault as detail:
+                logging.exception("getResutsFromMsci WebFault exception: %s", detail)
+            except Exception as e:
+                logging.exception(
+                    "getResutsFromMsci function failed with exception: %s",
+                    sys.exc_info()[0],
+                )
+            except:
+                logging.exception(
+                    "getEstUniverseResutsFromMsci function failed with and unexpected error: %s",
+                    sys.exc_info()[0],
+                )
+                print(
+                    "getEstUniverseResutsFromMsci function failed with and unexpected error:",
+                    sys.exc_info()[0],
+                )
+                raise
+            finally:
+                connection.close()
 
 # HELPER FUNCTIONS
 def recursive_asdict(d):
@@ -1515,7 +2028,6 @@ def recursive_asdict(d):
         else:
             out[k] = v
     return out
-
 
 def suds_to_json(data):
     return json.dumps(recursive_asdict(data))
